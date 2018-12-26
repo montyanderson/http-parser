@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <ctype.h>
 
 struct http_header {
 	char *key;
@@ -16,14 +17,21 @@ struct http_request {
 	char *body;
 };
 
-struct http_request *http_request_parse(char *buffer) {
-	// check if ready to parse
+void http_request_free(struct http_request *request) {
+	free(request->method);
+	free(request->path);
+	free(request->protocol);
 
-	struct http_request *request = calloc(1, sizeof(struct http_request));
+	for(size_t i = 0; i < request->headers_length; i++) {
+		free(request->headers[i].key);
+		free(request->headers[i].value);
+	}
 
-	if(request == NULL)
-		return NULL;
+	free(request->headers);
+	free(request->body);
+}
 
+int http_request_parse(struct http_request *request, char *buffer) {
 	// method
 
 	char *method_start = buffer;
@@ -79,6 +87,8 @@ struct http_request *http_request_parse(char *buffer) {
 	char *value_end = protocol_end;
 	size_t value_length;
 
+	size_t content_length = 0;
+
 	for(size_t i = 0; i < headers_length; i++) {
 		key_start = value_end + 1;
 		key_end = strchr(key_start, ':');
@@ -87,6 +97,10 @@ struct http_request *http_request_parse(char *buffer) {
 		key = malloc(key_length + 1);
 		strncpy(key, key_start, key_length);
 		key[key_length] = 0;
+
+		for(size_t j = 0; j < key_length; j++) {
+			key[j] = tolower(key[j]);
+		}
 
 		request->headers[i].key = key;
 
@@ -103,31 +117,44 @@ struct http_request *http_request_parse(char *buffer) {
 		value[value_length] = 0;
 
 		request->headers[i].value = value;
+
+		if(content_length == 0 && strcmp(key, "content-length") == 0) {
+			sscanf(value, "%lu", &content_length);
+		}
 	}
 
-	char *body_start = strchr(value_end + 1, '\n') + 1;
-	size_t body_length = strlen(body_start);
+	if(content_length) {
+		char *body_start = strchr(value_end + 1, '\n') + 1;
 
-	request->body = malloc(body_length + 1);
-	strncpy(request->body, body_start, body_length);
+		if(strlen(body_start) < content_length) {
+			printf("length less than content length\n");
+		}
 
-	return request;
+		request->body = malloc(content_length + 1);
+		strncpy(request->body, body_start, content_length);
+		request->body[content_length] = 0;
+	}
+
+	return 0;
 }
 
 int main() {
-	char *buffer = "POST /cgi-bin/process.cgi HTTP/1.1\nUser-Agent: Mozilla/4.0 (compatible; MSIE5.01; Windows NT)\nHost: www.tutorialspoint.com\nContent-Type: application/x-www-form-urlencoded\nContent-Length: length\nAccept-Language: en-us\nAccept-Encoding: gzip, deflate\nConnection: Keep-Alive\n \nlicenseID=string&content=string&/paramsXML=string";
+	char *buffer = "POST /bin/login HTTP/1.1\nHost: 127.0.0.1:8000\nAccept: image/gif, image/jpeg, */*\nReferer: http://127.0.0.1:8000/login.html\nAccept-Language: en-us\nContent-Type: application/x-www-form-urlencoded\nAccept-Encoding: gzip, deflate\nUser-Agent: Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1)\nContent-Length: 37\nConnection: Keep-Alive\nCache-Control: no-cache\n\nUser=Peter+Lee&pw=123456&action=login";
 
-	struct http_request *req = http_request_parse(buffer);
+	struct http_request req;
+	memset(&req, 0, sizeof(req));
 
-	printf("request->method '%s'\n", req->method);
-	printf("request->path '%s'\n", req->path);
-	printf("request->protcol '%s'\n", req->protocol);
+	http_request_parse(&req, buffer);
 
-	printf("request->headers_length '%lu'\n", req->headers_length);
+	printf("request->method '%s'\n", req.method);
+	printf("request->path '%s'\n", req.path);
+	printf("request->protcol '%s'\n", req.protocol);
 
-	for(size_t i = 0; i < req->headers_length; i++) {
-		printf("request->header[%lu] '%s' '%s'\n", i, req->headers[i].key, req->headers[i].value);
+	printf("request->headers_length '%lu'\n", req.headers_length);
+
+	for(size_t i = 0; i < req.headers_length; i++) {
+		printf("request->header[%lu] '%s' '%s'\n", i, req.headers[i].key, req.headers[i].value);
 	}
 
-	printf("request->body '%s'\n", req->body);
+	printf("request->body '%s'\n", req.body);
 }
